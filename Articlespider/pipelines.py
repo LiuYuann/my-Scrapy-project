@@ -8,6 +8,9 @@
 from scrapy.pipelines.images import ImagesPipeline
 from scrapy.exporters import JsonItemExporter
 from twisted.enterprise import adbapi
+import datetime
+import codecs
+import json
 import MySQLdb
 import MySQLdb.cursors
 
@@ -16,15 +19,22 @@ class ArticlespiderPipeline(object):
     def process_item(self, item, spider):
         # 此处item已经获取到数据，可以将其保存到数据库
         return item
-
+class DateEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime.datetime):
+            return obj.strftime('%Y-%m-%d %H:%M:%S')
+        elif isinstance(obj, datetime.date):
+            return obj.strftime("%Y-%m-%d")
+        else:
+            return json.JSONEncoder.default(self, obj)
 
 class JsonWithEncodingPipeline(object):
     # 自定义导出jaon文件
     def __init__(self):
-        self.file = codecs.open('article.json', 'w', encoding='utf8')
+        self.file = codecs.open('article.json', 'w', encoding='utf8') #codecs专门用作编码转换
 
     def process_item(self, item, spider):
-        lines = json.dumps(dict(item), ensure_ascii=False) + '\n'
+        lines = json.dumps(dict(item), cls=DateEncoder, ensure_ascii=False) + '\n'
         self.file.write(lines)
         return item
 
@@ -48,7 +58,7 @@ class JsonExporterPipeline(object):
         return item
 
 
-class MysqlPipeline(object):
+class MysqlPipeline(object): #同步保存到数据库
     def __init__(self):
         self.conn = MySQLdb.connect('localhost', 'root', '', 'article_spider', charset='utf8')
         self.cursor = self.conn.cursor()
@@ -62,7 +72,7 @@ class MysqlPipeline(object):
         self.conn.commit()
 
 
-class MysqlTwistedPipeline(object):
+class MysqlTwistedPipeline(object):  #异步保存到数据库
     def __init__(self, dbpool):
         self.dbpool = dbpool
 
@@ -101,7 +111,8 @@ class MysqlTwistedPipeline(object):
 
 class ArticleImagePipeline(ImagesPipeline):
     def item_completed(self, results, item, info):
-        for ok, value in results:
-            image_file_path = value["path"]
-        item["image_path"] = image_file_path
+        if "image_urls" in item:
+            for ok, value in results:
+                image_file_path = value["path"]
+            item["image_path"] = image_file_path
         return item
